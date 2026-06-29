@@ -1,0 +1,17 @@
+{
+  "name": "decentralized-kyc-ledger",
+  "version": "1.0.0",
+  "description": "Enterprise-grade blockchain architecture for GDPR-compliant KYC verification",
+  "main": "index.js",
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "test": "npx hardhat test"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@openzeppelin/contracts": "^5.0.0",
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "hardhat": "^2.19.0"
+  }
+}
