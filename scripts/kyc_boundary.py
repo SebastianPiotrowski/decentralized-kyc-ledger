@@ -22,7 +22,8 @@ class KYCCryptographicBoundary:
         The salt prevents rainbow table attacks and brute-force correlation on-chain.
         """
         # Canonicalize JSON to ensure deterministic hashing regardless of key order
-        canonical_pii = json.dumps(pii_data, sort_keys=True)
+        # Specify separators to avoid spacing issues (ensures cross-language compatibility with JS)
+        canonical_pii = json.dumps(pii_data, sort_keys=True, separators=(',', ':'))
         salted_input = f"{canonical_pii}:{salt}".encode('utf-8')
         return hashlib.sha256(salted_input).hexdigest()
 

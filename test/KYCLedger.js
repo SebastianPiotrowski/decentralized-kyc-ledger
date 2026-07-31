@@ -7,15 +7,15 @@ describe("KYCLedger Enterprise Suite", function () {
   let owner;
   let authorizedBank;
   let unauthorizedNode;
+  let newOwner;
 
   // Predictable, robust test data structured as bytes32 primitives
   const customerId = ethers.encodeBytes32String("customer_9482019");
   const identityHash = ethers.encodeBytes32String("aws_s3_encrypted_payload_hash");
-  const wrongIdentityHash = ethers.encodeBytes32String("malicious_payload_hash");
 
   beforeEach(async function () {
     // Retrieve signers for infrastructure nodes
-    [owner, authorizedBank, unauthorizedNode] = await ethers.getSigners();
+    [owner, authorizedBank, unauthorizedNode, newOwner] = await ethers.getSigners();
 
     // Deploy the high-integrity contract
     KYCLedger = await ethers.getContractFactory("KYCLedger");
@@ -36,6 +36,28 @@ describe("KYCLedger Enterprise Suite", function () {
     });
   });
 
+  describe("Governance Owner Rotation", function () {
+    it("Should allow the current governance owner to transfer ownership", async function () {
+      await expect(kycLedger.connect(owner).transferGovernance(newOwner.address))
+        .to.emit(kycLedger, "GovernanceTransferred")
+        .withArgs(owner.address, newOwner.address);
+      
+      expect(await kycLedger.governanceOwner()).to.equal(newOwner.address);
+    });
+
+    it("Should strictly reject ownership transfer requests from unauthorized accounts", async function () {
+      await expect(
+        kycLedger.connect(unauthorizedNode).transferGovernance(newOwner.address)
+      ).to.be.revertedWithCustomError(kycLedger, "Unauthorized");
+    });
+
+    it("Should reject ownership transfer to address(0)", async function () {
+      await expect(
+        kycLedger.connect(owner).transferGovernance(ethers.ZeroAddress)
+      ).to.be.revertedWithCustomError(kycLedger, "InvalidGovernanceOwner");
+    });
+  });
+
   describe("KYC Operations & Gas Optimization Validation", function () {
     it("Should allow authorized bank to record a KYC proof", async function () {
       // Execute the on-chain cryptographic anchoring
@@ -44,9 +66,8 @@ describe("KYCLedger Enterprise Suite", function () {
       // Extract the structured audit trail from the registry
       const auditTrail = await kycLedger.getAuditTrail(customerId);
 
-      // Verify strict data alignment and state persistence
-      expect(auditTrail.customerId).to.equal(customerId);
-      expect(auditTrail.identityHash).to.equal(identityHash); // Fixed Assertion Loop
+      // Verify strict data alignment and state persistence (customerId is removed for packing)
+      expect(auditTrail.identityHash).to.equal(identityHash);
       expect(auditTrail.validatingBank).to.equal(authorizedBank.address);
       expect(auditTrail.isValid).to.be.true;
     });
@@ -60,7 +81,7 @@ describe("KYCLedger Enterprise Suite", function () {
     it("Should strictly reject record submissions from unauthorized infrastructure nodes", async function () {
       await expect(
         kycLedger.connect(unauthorizedNode).recordKYC(customerId, identityHash)
-      ).to.be.revertedWith("Governance: Caller is not an authorized validator");
+      ).to.be.revertedWithCustomError(kycLedger, "ValidatorOnly");
     });
 
     it("Should allow a validator to revoke a KYC record and update system state", async function () {
@@ -78,7 +99,7 @@ describe("KYCLedger Enterprise Suite", function () {
 
       await expect(
         kycLedger.connect(authorizedBank).revokeKYC(customerId)
-      ).to.be.revertedWith("Data: Profile already inactive or non-existent");
+      ).to.be.revertedWithCustomError(kycLedger, "ProfileAlreadyInactiveOrNonExistent");
     });
   });
 });
