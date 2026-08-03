@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "compile": "npx hardhat compile",
-    "test": "npx hardhat test"
+    "test": "npx hardhat test && python3 -m unittest test/test_python_components.py",
+    "test:solidity": "npx hardhat test",
+    "test:python": "python3 -m unittest test/test_python_components.py"
   },
   "author": "",
   "license": "MIT",

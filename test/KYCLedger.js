@@ -101,5 +101,102 @@ describe("KYCLedger Enterprise Suite", function () {
         kycLedger.connect(authorizedBank).revokeKYC(customerId)
       ).to.be.revertedWithCustomError(kycLedger, "ProfileAlreadyInactiveOrNonExistent");
     });
+
+    it("Should reject KYC recording if customer ID is empty (bytes32(0))", async function () {
+      await expect(
+        kycLedger.connect(authorizedBank).recordKYC(ethers.ZeroHash, identityHash)
+      ).to.be.revertedWithCustomError(kycLedger, "InvalidCustomerAnchor");
+    });
+
+    it("Should reject KYC recording if identity hash is empty (bytes32(0))", async function () {
+      await expect(
+        kycLedger.connect(authorizedBank).recordKYC(customerId, ethers.ZeroHash)
+      ).to.be.revertedWithCustomError(kycLedger, "InvalidIdentityPayload");
+    });
+
+    it("Should successfully overwrite an existing KYC record", async function () {
+      await kycLedger.connect(authorizedBank).recordKYC(customerId, identityHash);
+      
+      const newIdentityHash = ethers.encodeBytes32String("new_s3_payload_hash");
+      await kycLedger.connect(owner).recordKYC(customerId, newIdentityHash);
+
+      const auditTrail = await kycLedger.getAuditTrail(customerId);
+      expect(auditTrail.identityHash).to.equal(newIdentityHash);
+      expect(auditTrail.validatingBank).to.equal(owner.address);
+      expect(auditTrail.isValid).to.be.true;
+    });
+
+    it("Should revert with ProfileNotFound for unregistered customer IDs", async function () {
+      const nonExistentCustomerId = ethers.encodeBytes32String("non_existent_customer");
+      await expect(
+        kycLedger.getAuditTrail(nonExistentCustomerId)
+      ).to.be.revertedWithCustomError(kycLedger, "ProfileNotFound");
+    });
+  });
+
+  describe("Validator Status Management", function () {
+    it("Should allow governance owner to set validator status and emit status change event", async function () {
+      await expect(kycLedger.connect(owner).setValidatorStatus(unauthorizedNode.address, true))
+        .to.emit(kycLedger, "ValidatorStatusChanged")
+        .withArgs(unauthorizedNode.address, true);
+
+      expect(await kycLedger.authorizedValidators(unauthorizedNode.address)).to.be.true;
+    });
+
+    it("Should strictly prevent non-governance accounts from setting validator status", async function () {
+      await expect(
+        kycLedger.connect(unauthorizedNode).setValidatorStatus(newOwner.address, true)
+      ).to.be.revertedWithCustomError(kycLedger, "Unauthorized");
+    });
+
+    it("Should prevent a revoked validator from recording KYC", async function () {
+      // Revoke authorizedBank's validator privileges
+      await kycLedger.connect(owner).setValidatorStatus(authorizedBank.address, false);
+
+      await expect(
+        kycLedger.connect(authorizedBank).recordKYC(customerId, identityHash)
+      ).to.be.revertedWithCustomError(kycLedger, "ValidatorOnly");
+    });
+
+    it("Should prevent a revoked validator from revoking KYC", async function () {
+      // First record a valid profile using owner node (who is a validator)
+      await kycLedger.connect(owner).recordKYC(customerId, identityHash);
+
+      // Revoke authorizedBank's validator privileges
+      await kycLedger.connect(owner).setValidatorStatus(authorizedBank.address, false);
+
+      await expect(
+        kycLedger.connect(authorizedBank).revokeKYC(customerId)
+      ).to.be.revertedWithCustomError(kycLedger, "ValidatorOnly");
+    });
+  });
+
+  describe("Governance Transfer Scope and Restrictions", function () {
+    it("Should prevent the old governance owner from calling governance tasks after ownership rotation", async function () {
+      // Transfer governance to newOwner
+      await kycLedger.connect(owner).transferGovernance(newOwner.address);
+
+      // Old owner tries to add a validator
+      await expect(
+        kycLedger.connect(owner).setValidatorStatus(unauthorizedNode.address, true)
+      ).to.be.revertedWithCustomError(kycLedger, "Unauthorized");
+
+      // Old owner tries to transfer governance again
+      await expect(
+        kycLedger.connect(owner).transferGovernance(owner.address)
+      ).to.be.revertedWithCustomError(kycLedger, "Unauthorized");
+    });
+
+    it("Should allow the new governance owner to perform governance tasks after ownership rotation", async function () {
+      // Transfer governance to newOwner
+      await kycLedger.connect(owner).transferGovernance(newOwner.address);
+
+      // New owner adds a validator
+      await expect(kycLedger.connect(newOwner).setValidatorStatus(unauthorizedNode.address, true))
+        .to.emit(kycLedger, "ValidatorStatusChanged")
+        .withArgs(unauthorizedNode.address, true);
+
+      expect(await kycLedger.authorizedValidators(unauthorizedNode.address)).to.be.true;
+    });
   });
 });
